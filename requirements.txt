@@ -1,0 +1,6 @@
+boto3
+botocore[crt]
+qdrant-client
+python-dotenv
+google-genai
+PyMuPDF

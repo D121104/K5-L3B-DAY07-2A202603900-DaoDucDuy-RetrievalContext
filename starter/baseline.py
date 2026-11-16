@@ -74,6 +74,45 @@ class TfidfIndex:
         return sorted(results, key=lambda c: (-c['score'], c['id']))[:top_k]
 
 
+class BM25Index:
+    """Okapi BM25 lexical index using the baseline's shared tokenizer."""
+    def __init__(self, chunks, k1=1.5, b=0.75):
+        if k1 < 0:
+            raise ValueError('k1 must be non-negative')
+        if not 0 <= b <= 1:
+            raise ValueError('b must be between 0 and 1')
+        self.chunks = chunks
+        self.k1 = k1
+        self.b = b
+        self.counts = [Counter(tokenize(c['text'])) for c in chunks]
+        self.lengths = [sum(row.values()) for row in self.counts]
+        self.avgdl = sum(self.lengths) / len(self.lengths) if self.lengths else 0
+        df = Counter(term for row in self.counts for term in row)
+        n = len(chunks)
+        # Robertson-Sparck Jones IDF, shifted positive for robust lexical scoring.
+        self.idf = {term: math.log(1 + (n - freq + 0.5) / (freq + 0.5))
+                    for term, freq in df.items()}
+
+    def search(self, question, top_k=3):
+        if top_k <= 0:
+            return []
+        query_terms = set(tokenize(question))
+        if not query_terms:
+            return []
+        results = []
+        for chunk, counts, length in zip(self.chunks, self.counts, self.lengths):
+            score = 0.0
+            for term in query_terms:
+                frequency = counts.get(term, 0)
+                if not frequency:
+                    continue
+                norm = 1 - self.b + self.b * length / self.avgdl if self.avgdl else 1
+                score += self.idf[term] * frequency * (self.k1 + 1) / (frequency + self.k1 * norm)
+            if score > 0:
+                results.append({**chunk, 'score': score, 'strategy': 'bm25'})
+        return sorted(results, key=lambda c: (-c['score'], c['id']))[:top_k]
+
+
 def pack_context(results, budget=800):
     blocks, ids, seen = [], [], set()
     for c in results:

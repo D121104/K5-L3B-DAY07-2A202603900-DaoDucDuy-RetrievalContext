@@ -1,4 +1,4 @@
-"""Aggregate agent traces with human labels; never infer grounding from citation IDs."""
+"""Aggregate agent traces with supplied labels; never infer grounding from citation IDs."""
 import argparse
 import json
 from pathlib import Path
@@ -23,7 +23,10 @@ def aggregate(cases, traces, reviews):
            'abstention': {'n': 0, 'N': 0}, 'false_abstention': {'n': 0, 'N': 0}}
     for case in cases:
         cid = case['id']
-        if not isinstance(case.get('answerable'), bool): raise ValueError(f'{cid}: thiếu answerable boolean')
+        answerable = case.get('answerable')
+        if answerable is None:
+            answerable = bool(case.get('gold'))
+        if not isinstance(answerable, bool): raise ValueError(f'{cid}: thiếu answerable boolean')
         if cid not in trace_by_id: raise ValueError(f'{cid}: thiếu trace')
         t = trace_by_id[cid]
         if t.get('status') == 'error':
@@ -45,7 +48,7 @@ def aggregate(cases, traces, reviews):
         if t['status'] == 'answered':
             out['answer_citation_coverage']['N'] += 1
             out['answer_citation_coverage']['n'] += bool(citations)
-        if case['answerable']:
+        if answerable:
             grade = r.get('answer_grade')
             if type(grade) is not int or grade not in (0, 1, 2): raise ValueError(f'{cid}: answer_grade phải là 0, 1 hoặc 2')
             if t['status'] == 'abstain' and grade != 0: raise ValueError(f'{cid}: abstain trên câu có đáp án phải được chấm 0')
@@ -74,10 +77,26 @@ def main():
     parser.add_argument('--split', choices=('dev', 'test'), required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    def load(path): return json.loads(path.read_text(encoding='utf-8'))
+    def load(path, deduplicate_traces=False):
+        text = path.read_text(encoding='utf-8')
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = [json.loads(line) for line in text.splitlines() if line.strip()]
+        if isinstance(data, dict):
+            wrapped = data.get('records', data.get('cases'))
+            data = wrapped if isinstance(wrapped, list) else [data]
+        if not isinstance(data, list):
+            raise ValueError(f'{path}: expected a JSON array or JSONL records')
+        if deduplicate_traces:
+            latest = {}
+            for record in data:
+                latest[record['query_id']] = record
+            data = list(latest.values())
+        return data
     cases = [c for c in load(args.cases) if c.get('split') == args.split]
     if not cases: raise ValueError('không có case trong split')
-    report = {'split': args.split, **aggregate(cases, load(args.traces), load(args.reviews))}
+    report = {'split': args.split, **aggregate(cases, load(args.traces, deduplicate_traces=True), load(args.reviews))}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))

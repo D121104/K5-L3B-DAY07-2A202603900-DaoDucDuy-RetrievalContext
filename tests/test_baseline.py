@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'starter'))
-from baseline import TfidfIndex, evaluate, hit, pack_context, validate
+from baseline import BM25Index, TfidfIndex, evaluate, hit, pack_context, validate
 from convert_day6 import convert_chunk, convert_question
 
 
@@ -47,6 +47,26 @@ class BaselineTests(unittest.TestCase):
         trace = evaluate(TfidfIndex(self.chunks), [self.q], budget=1)[0]
         self.assertTrue(trace['hit3'])
         self.assertFalse(trace['context_hit'])
+
+    def test_bm25_relevance_top_k_empty_query_and_determinism(self):
+        chunks = [chunk('a', 'rareterm appears once'),
+                  chunk('b', 'rareterm appears rareterm often'),
+                  chunk('c', 'unrelated words only')]
+        index = BM25Index(chunks)
+        results = index.search('rareterm', top_k=2)
+        self.assertEqual([c['id'] for c in results], ['b', 'a'])
+        self.assertEqual([c['id'] for c in index.search('rareterm', top_k=1)], ['b'])
+        self.assertTrue(all(c['strategy'] == 'bm25' and isinstance(c['score'], float) for c in results))
+        self.assertEqual(index.search('not-in-index'), [])
+        self.assertEqual(index.search('   '), [])
+        self.assertEqual(index.search('rareterm', top_k=0), [])
+        self.assertEqual([c['id'] for c in BM25Index(chunks).search('rareterm')], ['b', 'a'])
+
+    def test_bm25_parameters(self):
+        with self.assertRaises(ValueError):
+            BM25Index(self.chunks, k1=-1)
+        with self.assertRaises(ValueError):
+            BM25Index(self.chunks, b=1.1)
 
     def test_convert_day6_and_preserve_filter(self):
         raw_chunk = {'chunk_id': 'c1', 'document_id': 'doc', 'source': 'doc.pdf', 'page': 1,

@@ -54,22 +54,54 @@ def run_agent(question: str, controller: Controller, retriever: Retriever, *,
             results = retriever.search(query, filters=filters, top_k=top_k)
             if len(results) > top_k or len({r['id'] for r in results}) != len(results):
                 raise ValueError('retriever phải trả tối đa top_k chunk ID duy nhất')
-            candidates.extend(results)
+            primary_results = [{key: value for key, value in result.items() if key != '_neighbors'}
+                               for result in results]
+            expanded = []
+            seen = set()
+            for result in results:
+                group = [{key: value for key, value in result.items() if key != '_neighbors'}]
+                group.extend(result.get('_neighbors', []))
+                group.sort(key=lambda chunk: chunk.get('metadata', {}).get('chunk_index', float('inf')))
+                for chunk in group:
+                    identifier = str(chunk['id'])
+                    if identifier not in seen:
+                        expanded.append(chunk)
+                        seen.add(identifier)
+            # Prefer the newest query's evidence when a fixed context budget is tight.
+            candidates = expanded + candidates
             context, ids = pack_context(candidates, budget=budget)
             chunks = {c['id']: c for c in candidates if c['id'] in ids}
-            events.append({'event': 'search', 'query': query, 'filter': filters, 'results': results,
-                           'context': context, 'context_ids': ids})
+            events.append({'event': 'search', 'query': query, 'filter': filters,
+                           'results': primary_results, 'expanded_context': expanded,
+                           'context': context, 'context_ids': ids,
+                           'neighbor_window': getattr(retriever, 'neighbor_window', 0)})
             # Send only the latest cumulative context; avoid multiplying the budget.
             history = [{'tool': 'search', 'queries': [e['query'] for e in events if e['event'] == 'search'],
                         'context': context, 'context_ids': ids}]
         elif action.get('action') == 'answer':
             answer, citations = action.get('answer'), action.get('citations')
-            if not isinstance(answer, str) or not isinstance(citations, list) or any(not isinstance(i, str) for i in citations):
+            if answer is None or answer == '':
+                answer = ''
+            if citations is None:
+                citations = []
+            if (not isinstance(answer, str) or not isinstance(citations, list)
+                    or any(not isinstance(i, str) for i in citations)):
                 raise ValueError('answer/citations không hợp lệ')
-            valid = bool(answer.strip() and citations and all(i in chunks and f'[{i}]' in answer for i in citations))
+            reason = None
+            if not answer.strip():
+                reason = 'missing_answer'
+            elif not citations:
+                reason = 'missing_citations'
+            elif any(i not in chunks for i in citations):
+                reason = 'citation_not_in_context'
+            elif any(f'[{i}]' not in answer for i in citations):
+                answer = answer.rstrip() + ' ' + ' '.join(
+                    f'[{identifier}]' for identifier in citations if f'[{identifier}]' not in answer)
+            valid = reason is None
             if valid:
                 return {'status': 'answered', 'answer': answer, 'citations': citations, 'events': events + [{'event': 'answer'}]}
-            return {'status': 'abstain', 'answer': 'Không đủ bằng chứng để trả lời.', 'citations': [], 'events': events + [{'event': 'invalid_or_missing_citations'}]}
+            return {'status': 'abstain', 'answer': 'Không đủ bằng chứng để trả lời.', 'citations': [],
+                    'events': events + [{'event': 'invalid_or_missing_citations', 'reason': reason}]}
         else:
             raise ValueError('action phải là search hoặc answer')
     return {'status': 'abstain', 'answer': 'Không đủ bằng chứng để trả lời.', 'citations': [], 'events': events}

@@ -8,4 +8,12 @@ __pycache__/
 
 # Local datasets and generated output; share permitted artifacts deliberately
 starter/data/
-starter/results/
+starter/results/*
+!starter/results/advanced_agent_dev_after_fixes/
+!starter/results/advanced_agent_test_after_fixes/
+starter/results/advanced_agent_dev_after_fixes/*
+starter/results/advanced_agent_test_after_fixes/*
+!starter/results/advanced_agent_dev_after_fixes/summary.json
+!starter/results/advanced_agent_dev_after_fixes/traces.jsonl
+!starter/results/advanced_agent_test_after_fixes/summary.json
+!starter/results/advanced_agent_test_after_fixes/traces.jsonl

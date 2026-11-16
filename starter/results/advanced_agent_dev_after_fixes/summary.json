@@ -1,0 +1,14 @@
+{
+  "split": "dev",
+  "total_cases": 18,
+  "completed_cases": 18,
+  "statuses": {
+    "answered": 14,
+    "abstain": 4
+  },
+  "search_tool_calls": 21,
+  "error_count": 0,
+  "artifacts": {
+    "traces": "traces.jsonl"
+  }
+}

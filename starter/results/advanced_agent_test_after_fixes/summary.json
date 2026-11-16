@@ -1,0 +1,15 @@
+{
+  "split": "test",
+  "total_cases": 30,
+  "completed_cases": 30,
+  "statuses": {
+    "answered": 22,
+    "error": 2,
+    "abstain": 6
+  },
+  "search_tool_calls": 35,
+  "error_count": 2,
+  "artifacts": {
+    "traces": "traces.jsonl"
+  }
+}
